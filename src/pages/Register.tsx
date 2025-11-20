@@ -8,6 +8,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
 import { useUserPersona, UserType } from "@/contexts/UserPersonaContext";
+import { signUp } from "@/integrations/supabase/auth";
 
 export default function Register() {
   const navigate = useNavigate();
@@ -18,6 +19,7 @@ export default function Register() {
   const [password, setPassword] = useState("");
   const [householdSize, setHouseholdSize] = useState("");
   const [monthlyBudget, setMonthlyBudget] = useState("");
+  const [loading, setLoading] = useState(false);
 
   // Dynamic labels based on userType
   const getNameLabel = () => {
@@ -67,14 +69,45 @@ export default function Register() {
     return 'Monthly Food Budget (৳)';
   };
 
-  const handleSignUp = (e: React.FormEvent) => {
+  const handleSignUp = async (e: React.FormEvent) => {
     e.preventDefault();
-    // Mock registration
-    toast({
-      title: "Account created!",
-      description: "Welcome to EcoPantry. Let's reduce waste together.",
-    });
-    navigate("/dashboard");
+    setLoading(true);
+
+    try {
+      const { data, error } = await signUp({
+        email,
+        password,
+        fullName: name,
+        userType,
+        householdSize: householdSize ? parseInt(householdSize) : undefined,
+        monthlyBudget: monthlyBudget ? parseFloat(monthlyBudget) : undefined,
+      });
+
+      if (error) {
+        toast({
+          title: "Registration Failed",
+          description: error.message || "An error occurred during registration",
+          variant: "destructive",
+        });
+        return;
+      }
+
+      if (data) {
+        toast({
+          title: "Account created!",
+          description: "Welcome to EcoPantry. Please check your email to verify your account.",
+        });
+        navigate("/dashboard");
+      }
+    } catch (error) {
+      toast({
+        title: "Error",
+        description: "An unexpected error occurred. Please try again.",
+        variant: "destructive",
+      });
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
@@ -234,9 +267,10 @@ export default function Register() {
 
             <Button
               type="submit"
+              disabled={loading}
               className="w-full gradient-primary text-white hover:opacity-90 transition-opacity"
             >
-              Create Account
+              {loading ? "Creating account..." : "Create Account"}
             </Button>
           </form>
 
