@@ -1,16 +1,37 @@
 import { motion } from "framer-motion";
 import { TrendingUp, TrendingDown, Package, AlertTriangle, CheckCircle, UtensilsCrossed, Leaf, Cloud, DollarSign, ShoppingBag, Utensils, Camera, Lightbulb } from "lucide-react";
 import { BorderBeam } from "@/components/animated/BorderBeam";
-import { mockGreenScore, mockInventory, mockMealLogs } from "@/data/mockData";
 import { Button } from "@/components/ui/button";
 import { useNavigate } from "react-router-dom";
 import { useUserPersona } from "@/contexts/UserPersonaContext";
+import { useProfile, useInventory, useConsumptions } from "@/integrations/supabase/hooks";
 
 export default function Dashboard() {
   const navigate = useNavigate();
   const { userType } = useUserPersona();
-  const expiringItems = mockInventory.filter(item => item.status === "expiring");
-  const expiredItems = mockInventory.filter(item => item.status === "expired");
+  
+  // Fetch real data from Supabase
+  const { data: profile, isLoading: profileLoading } = useProfile();
+  const { data: inventory = [], isLoading: inventoryLoading } = useInventory();
+  const { data: consumptions = [], isLoading: consumptionsLoading } = useConsumptions();
+  
+  // Calculate stats from real inventory data
+  const expiringItems = inventory.filter(item => item.status === "expiring");
+  const expiredItems = inventory.filter(item => item.status === "expired");
+  const freshItems = inventory.filter(item => item.status === "fresh");
+  
+  // Calculate green score and trend (using profile data or default)
+  const currentScore = profile?.green_score || 0;
+  const previousScore = 65; // TODO: Store historical scores to calculate real trend
+  const scoreTrend = currentScore >= previousScore ? "up" : "down";
+  const scoreChange = Math.abs(currentScore - previousScore);
+  
+  // Calculate impact stats
+  const itemsSaved = freshItems.length;
+  const mealCount = consumptions.length;
+  
+  // Loading state
+  const isLoading = profileLoading || inventoryLoading || consumptionsLoading;
 
   // Dynamic labels based on userType
   const getGreenScoreTitle = () => {
@@ -29,23 +50,23 @@ export default function Dashboard() {
       case 'family':
         return {
           saved: 'Meals Rescued',
-          savedValue: '32',
+          savedValue: mealCount.toString(),
           money: 'Budget Saved',
-          moneyValue: '৳680'
+          moneyValue: `৳${itemsSaved * 20}` // Rough calculation: 20 BDT per item saved
         };
       case 'community':
         return {
           saved: 'Total Meals Served',
-          savedValue: '1,250',
+          savedValue: mealCount.toString(),
           money: 'Mess Fund Saved',
-          moneyValue: '৳8,400'
+          moneyValue: `৳${itemsSaved * 30}` // Higher value for community
         };
       default:
         return {
           saved: 'Items Saved',
-          savedValue: '24',
+          savedValue: itemsSaved.toString(),
           money: 'Money Saved',
-          moneyValue: '৳480'
+          moneyValue: `৳${itemsSaved * 20}` // Rough calculation
         };
     }
   };
@@ -66,27 +87,6 @@ export default function Dashboard() {
   const impactLabels = getImpactLabels();
   const actionButtons = getActionButtons();
 
-  const recentActivity = [
-    { 
-      type: 'scan', 
-      item: 'Miniket Rice (5kg)', 
-      time: '2h ago', 
-      delta: '+1', 
-      icon: ShoppingBag, 
-      color: 'text-blue-600', 
-      bg: 'bg-blue-100' 
-    },
-    { 
-      type: 'log', 
-      item: 'Chicken Curry', 
-      time: '5h ago', 
-      delta: '-4 items', 
-      icon: Utensils, 
-      color: 'text-orange-600', 
-      bg: 'bg-orange-100' 
-    }
-  ];
-
   return (
     <div className="min-h-screen pt-24 pb-12 bg-slate-50">
       <div className="container mx-auto px-4">
@@ -100,6 +100,14 @@ export default function Dashboard() {
           <h1 className="font-heading text-4xl font-bold mb-2">Dashboard</h1>
           <p className="text-muted-foreground">Track your sustainability impact</p>
         </motion.div>
+
+        {isLoading && inventory.length === 0 && consumptions.length === 0 ? (
+          <div className="text-center py-20">
+            <div className="inline-block h-12 w-12 animate-spin rounded-full border-4 border-solid border-primary border-r-transparent"></div>
+            <p className="mt-4 text-muted-foreground">Loading your dashboard...</p>
+          </div>
+        ) : (
+          <>
 
         <div className="grid lg:grid-cols-3 gap-6 mb-8">
           {/* Green Score Card with Border Beam */}
@@ -117,16 +125,16 @@ export default function Dashboard() {
                     <p className="text-muted-foreground">Your sustainability rating</p>
                   </div>
                   <div className={`flex items-center gap-2 px-3 py-1 rounded-full ${
-                    mockGreenScore.trend === "up" 
+                    scoreTrend === "up" 
                       ? "bg-primary/10 text-primary" 
                       : "bg-destructive/10 text-destructive"
                   }`}>
-                    {mockGreenScore.trend === "up" ? (
+                    {scoreTrend === "up" ? (
                       <TrendingUp className="h-4 w-4" />
                     ) : (
                       <TrendingDown className="h-4 w-4" />
                     )}
-                    <span className="font-semibold">+{mockGreenScore.change}%</span>
+                    <span className="font-semibold">+{scoreChange}%</span>
                   </div>
                 </div>
 
@@ -135,7 +143,7 @@ export default function Dashboard() {
                   <div className="relative">
                     <div className="flex items-baseline gap-2 mb-4">
                       <span className="font-heading text-6xl font-bold text-gradient">
-                        {mockGreenScore.current}
+                        {currentScore}
                       </span>
                       <span className="text-2xl text-muted-foreground">/100</span>
                     </div>
@@ -164,7 +172,7 @@ export default function Dashboard() {
                           strokeDasharray={`${2 * Math.PI * 88}`}
                           initial={{ strokeDashoffset: 2 * Math.PI * 88 }}
                           animate={{ 
-                            strokeDashoffset: 2 * Math.PI * 88 * (1 - mockGreenScore.current / 100)
+                            strokeDashoffset: 2 * Math.PI * 88 * (1 - currentScore / 100)
                           }}
                           transition={{ duration: 1.5, ease: "easeOut" }}
                         />
@@ -178,7 +186,7 @@ export default function Dashboard() {
                       {/* Center score display */}
                       <div className="absolute inset-0 flex flex-col items-center justify-center">
                         <span className="font-heading text-3xl font-bold text-primary">
-                          {mockGreenScore.current}
+                          {currentScore}
                         </span>
                         <span className="text-sm text-muted-foreground">Score</span>
                       </div>
@@ -237,7 +245,7 @@ export default function Dashboard() {
                 </div>
                 <div>
                   <p className="text-sm text-muted-foreground">Total Items</p>
-                  <p className="font-heading text-2xl font-bold">{mockInventory.length}</p>
+                  <p className="font-heading text-2xl font-bold">{inventory.length}</p>
                 </div>
               </div>
             </motion.div>
@@ -331,54 +339,48 @@ export default function Dashboard() {
         >
           <h3 className="font-heading text-2xl font-semibold mb-6">Recent Activity</h3>
           
-          <div className="space-y-4">
-            {recentActivity.map((activity, index) => {
-              const Icon = activity.icon;
-              return (
-                <motion.div
-                  key={index}
-                  initial={{ opacity: 0, x: -10 }}
-                  animate={{ opacity: 1, x: 0 }}
-                  transition={{ duration: 0.3, delay: 0.35 + index * 0.05, ease: "easeOut" }}
-                  className="flex items-center gap-4 p-4 rounded-xl bg-muted/30 hover:bg-muted/50 transition-colors"
-                >
-                  <div className={`rounded-lg ${activity.bg} p-2`}>
-                    <Icon className={`h-5 w-5 ${activity.color}`} />
-                  </div>
-                  <div className="flex-1">
-                    <p className="font-medium">{activity.item}</p>
-                    <p className="text-sm text-muted-foreground">{activity.delta}</p>
-                  </div>
-                  <div className="text-sm text-muted-foreground">
-                    {activity.time}
-                  </div>
-                </motion.div>
-              );
-            })}
-
-            {mockMealLogs.slice(0, 1).map((log, index) => (
-              <motion.div
-                key={log.id}
-                initial={{ opacity: 0, x: -10 }}
-                animate={{ opacity: 1, x: 0 }}
-                transition={{ duration: 0.3, delay: 0.45 + index * 0.05, ease: "easeOut" }}
-                className="flex items-center gap-4 p-4 rounded-xl bg-muted/30 hover:bg-muted/50 transition-colors"
-              >
-                <div className="rounded-lg bg-primary/10 p-2">
-                  <UtensilsCrossed className="h-5 w-5 text-primary" />
+          {isLoading ? (
+            <div className="text-center py-12">
+              <div className="inline-block h-8 w-8 animate-spin rounded-full border-4 border-solid border-primary border-r-transparent"></div>
+              <p className="mt-4 text-muted-foreground">Loading activity...</p>
+            </div>
+          ) : (
+            <div className="space-y-4">
+              {consumptions.slice(0, 3).map((consumption, index) => {
+                const ingredientsUsed = consumption.ingredients_used as any[] || [];
+                const ingredientNames = ingredientsUsed.map((i: any) => i.name || i).join(", ");
+                
+                return (
+                  <motion.div
+                    key={consumption.id}
+                    initial={{ opacity: 0, x: -10 }}
+                    animate={{ opacity: 1, x: 0 }}
+                    transition={{ duration: 0.3, delay: 0.35 + index * 0.05, ease: "easeOut" }}
+                    className="flex items-center gap-4 p-4 rounded-xl bg-muted/30 hover:bg-muted/50 transition-colors"
+                  >
+                    <div className="rounded-lg bg-primary/10 p-2">
+                      <UtensilsCrossed className="h-5 w-5 text-primary" />
+                    </div>
+                    <div className="flex-1">
+                      <p className="font-medium">{consumption.meal_name}</p>
+                      <p className="text-sm text-muted-foreground">
+                        {ingredientNames ? `Used: ${ingredientNames}` : 'No ingredients listed'}
+                      </p>
+                    </div>
+                    <div className="text-sm text-muted-foreground">
+                      {consumption.meal_date ? new Date(consumption.meal_date).toLocaleDateString() : 'No date'}
+                    </div>
+                  </motion.div>
+                );
+              })}
+              
+              {consumptions.length === 0 && (
+                <div className="text-center py-8 text-muted-foreground">
+                  <p>No meal logs yet. Start logging your meals to track your consumption!</p>
                 </div>
-                <div className="flex-1">
-                  <p className="font-medium">{log.name}</p>
-                  <p className="text-sm text-muted-foreground">
-                    Used: {log.ingredients.join(", ")}
-                  </p>
-                </div>
-                <div className="text-sm text-muted-foreground">
-                  {new Date(log.date).toLocaleDateString()}
-                </div>
-              </motion.div>
-            ))}
-          </div>
+              )}
+            </div>
+          )}
 
           {expiringItems.length > 0 && (
             <div className="mt-6 p-4 rounded-xl bg-accent/10 border border-accent/20">
@@ -395,6 +397,8 @@ export default function Dashboard() {
             </div>
           )}
         </motion.div>
+        </>
+        )}
       </div>
     </div>
   );

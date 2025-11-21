@@ -1,7 +1,6 @@
 import { motion, AnimatePresence } from "framer-motion";
-import { useState } from "react";
-import { Camera, Package, AlertTriangle, CheckCircle, Clock, Upload, X, Plus, Search, Filter } from "lucide-react";
-import { mockInventory } from "@/data/mockData";
+import { useState, useMemo } from "react";
+import { Camera, Package, AlertTriangle, CheckCircle, Clock, Upload, X, Plus, Search, Filter, Trash2, Edit } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
@@ -9,6 +8,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
 import { useUserPersona } from "@/contexts/UserPersonaContext";
+import { useInventory, useCreateInventoryItem, useUpdateInventoryItem, useDeleteInventoryItem } from "@/integrations/supabase/hooks";
 
 export default function Inventory() {
   const { userType } = useUserPersona();
@@ -21,6 +21,49 @@ export default function Inventory() {
   const [categoryFilter, setCategoryFilter] = useState("all");
   const [sortBy, setSortBy] = useState("expiry");
   const { toast } = useToast();
+
+  // Fetch real inventory data from Supabase
+  const { data: inventory = [], isLoading, error } = useInventory();
+  const createItem = useCreateInventoryItem();
+  const updateItem = useUpdateInventoryItem();
+  const deleteItem = useDeleteInventoryItem();
+
+  // Filter and sort inventory
+  const filteredInventory = useMemo(() => {
+    let filtered = inventory;
+
+    // Apply search filter
+    if (searchQuery) {
+      filtered = filtered.filter(item =>
+        item.name.toLowerCase().includes(searchQuery.toLowerCase())
+      );
+    }
+
+    // Apply category filter
+    if (categoryFilter !== "all") {
+      filtered = filtered.filter(item =>
+        item.category.toLowerCase() === categoryFilter.toLowerCase()
+      );
+    }
+
+    // Apply sorting
+    filtered = [...filtered].sort((a, b) => {
+      switch (sortBy) {
+        case "expiry":
+          if (!a.expiry_date) return 1;
+          if (!b.expiry_date) return -1;
+          return new Date(a.expiry_date).getTime() - new Date(b.expiry_date).getTime();
+        case "name":
+          return a.name.localeCompare(b.name);
+        case "category":
+          return a.category.localeCompare(b.category);
+        default:
+          return 0;
+      }
+    });
+
+    return filtered;
+  }, [inventory, searchQuery, categoryFilter, sortBy]);
 
   // Dynamic labels based on userType
   const getPageTitle = () => {
@@ -41,31 +84,34 @@ export default function Inventory() {
     return 'Scan Shopping';
   };
 
-  const getItemSubtitle = (item: typeof mockInventory[0]) => {
+  const getItemSubtitle = (item: any) => {
     switch (userType) {
       case 'family':
-        return 'Bought by Mom';
+        return item.purchased_by || 'Household';
       case 'community':
-        return 'Batch: Nov-15';
+        return item.batch || 'Batch: Nov-15';
       default:
         return item.category;
     }
   };
 
-  const formatQuantity = (item: typeof mockInventory[0]) => {
+  const formatQuantity = (item: any) => {
+    const qty = item.quantity || 0;
+    const unit = item.unit || 'pcs';
+    
     if (userType === 'community') {
       // Convert to bulk units for community
-      if (item.category === 'Grains' && item.quantity >= 5) {
-        return `1 Sack (${item.quantity * 10}kg)`;
+      if (item.category === 'Grains' && qty >= 5) {
+        return `1 Sack (${qty * 10}kg)`;
       }
-      if (item.category === 'Vegetables' && item.quantity >= 2) {
-        return `${Math.ceil(item.quantity / 2)} Crates`;
+      if (item.category === 'Vegetables' && qty >= 2) {
+        return `${Math.ceil(qty / 2)} Crates`;
       }
       if (item.category === 'Oils') {
-        return `${item.quantity * 5} Bottles`;
+        return `${qty * 5} Bottles`;
       }
     }
-    return `${item.quantity} ${item.unit}`;
+    return `${qty} ${unit}`;
   };
 
   const handleStartScan = () => {
@@ -87,7 +133,23 @@ export default function Inventory() {
     ]);
   };
 
-  const handleDeleteItem = (index: number) => {
+  const handleDeleteItem = async (id: string) => {
+    try {
+      await deleteItem.mutateAsync(id);
+      toast({
+        title: "Item Deleted",
+        description: "Item removed from inventory successfully",
+      });
+    } catch (error) {
+      toast({
+        title: "Error",
+        description: "Failed to delete item. Please try again.",
+        variant: "destructive",
+      });
+    }
+  };
+
+  const handleDeleteDetectedItem = (index: number) => {
     setDetectedItems(prev => prev.filter((_, i) => i !== index));
   };
 
@@ -98,12 +160,50 @@ export default function Inventory() {
     }
   };
 
-  const handleConfirmAdd = () => {
-    setScanDialogOpen(false);
-    toast({
-      title: "Items Added!",
-      description: `Successfully added ${detectedItems.length} items to your inventory`,
-    });
+  const handleConfirmAdd = async () => {
+    try {
+      // Parse detected items and create inventory items
+      for (const itemText of detectedItems) {
+        // Simple parsing - in production, this would be more sophisticated
+        const parts = itemText.split('-').map(p => p.trim());
+        const name = parts[0] || itemText;
+        const quantityPart = parts[1] || '1';
+        
+        // Extract quantity and unit
+        const quantityMatch = quantityPart.match(/(\d+(?:\.\d+)?)\s*(\w+)?/);
+        const quantity = quantityMatch ? parseFloat(quantityMatch[1]) : 1;
+        const unit = quantityMatch?.[2] || 'pcs';
+        
+        // Create item in database
+        await createItem.mutateAsync({
+          name,
+          category: 'General', // Default category
+          quantity,
+          unit,
+          purchase_date: new Date().toISOString().split('T')[0],
+          // Add optional fields based on user type
+          ...(userType === 'family' && { purchased_by: 'Household' }),
+          ...(userType === 'community' && { batch: `Batch-${new Date().toISOString().split('T')[0]}` }),
+        });
+      }
+      
+      setScanDialogOpen(false);
+      toast({
+        title: "Items Added!",
+        description: `Successfully added ${detectedItems.length} items to your inventory`,
+      });
+      
+      // Reset state
+      setDetectedItems([]);
+      setShopName("");
+      setScanStep("upload");
+    } catch (error) {
+      toast({
+        title: "Error",
+        description: "Failed to add items. Please try again.",
+        variant: "destructive",
+      });
+    }
   };
 
   const getStatusIcon = (status: string) => {
@@ -144,7 +244,7 @@ export default function Inventory() {
           >
             <h1 className="font-heading text-4xl font-bold mb-2">{getPageTitle()}</h1>
             <p className="text-muted-foreground">
-              {mockInventory.length} items • {mockInventory.filter(i => i.status === "expiring").length} expiring soon
+              {inventory.length} items • {inventory.filter(i => i.status === "expiring").length} expiring soon
             </p>
           </motion.div>
         </div>
@@ -219,10 +319,27 @@ export default function Inventory() {
                   <th className="text-left p-4 font-heading font-semibold">Quantity</th>
                   <th className="text-left p-4 font-heading font-semibold">Expiry Date</th>
                   <th className="text-left p-4 font-heading font-semibold">Status</th>
+                  <th className="text-left p-4 font-heading font-semibold">Actions</th>
                 </tr>
               </thead>
               <tbody>
-                {mockInventory.map((item, index) => (
+                {isLoading ? (
+                  <tr>
+                    <td colSpan={6} className="p-12 text-center">
+                      <div className="inline-block h-8 w-8 animate-spin rounded-full border-4 border-solid border-primary border-r-transparent"></div>
+                      <p className="mt-4 text-muted-foreground">Loading inventory...</p>
+                    </td>
+                  </tr>
+                ) : filteredInventory.length === 0 ? (
+                  <tr>
+                    <td colSpan={6} className="p-12 text-center text-muted-foreground">
+                      {searchQuery || categoryFilter !== "all" 
+                        ? "No items found matching your filters"
+                        : "No items in your inventory yet. Start by scanning a receipt or adding items manually."}
+                    </td>
+                  </tr>
+                ) : (
+                  filteredInventory.map((item, index) => (
                   <motion.tr
                     key={item.id}
                     initial={{ opacity: 0, y: 10 }}
@@ -251,26 +368,42 @@ export default function Inventory() {
                       <div className="flex items-center gap-2">
                         <Clock className="h-4 w-4 text-muted-foreground" />
                         <span className="text-muted-foreground">
-                          {new Date(item.expiryDate).toLocaleDateString()}
+                          {item.expiry_date ? new Date(item.expiry_date).toLocaleDateString() : 'No expiry date'}
                         </span>
                       </div>
                       <div className="text-sm text-muted-foreground">
-                        {item.daysUntilExpiry > 0 
+                        {item.daysUntilExpiry !== undefined && item.daysUntilExpiry > 0 
                           ? `${item.daysUntilExpiry} days left`
                           : item.daysUntilExpiry === 0
                           ? "Expires today"
-                          : "Expired"
+                          : item.daysUntilExpiry !== undefined && item.daysUntilExpiry < 0
+                          ? "Expired"
+                          : "No expiry"
                         }
                       </div>
                     </td>
                     <td className="p-4">
-                      <div className={`inline-flex items-center gap-2 rounded-full px-3 py-1 ${getStatusColor(item.status)}`}>
-                        {getStatusIcon(item.status)}
-                        <span className="text-sm font-medium capitalize">{item.status}</span>
+                      <div className={`inline-flex items-center gap-2 rounded-full px-3 py-1 ${getStatusColor(item.status || 'fresh')}`}>
+                        {getStatusIcon(item.status || 'fresh')}
+                        <span className="text-sm font-medium capitalize">{item.status || 'fresh'}</span>
+                      </div>
+                    </td>
+                    <td className="p-4">
+                      <div className="flex items-center gap-2">
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => handleDeleteItem(item.id)}
+                          disabled={deleteItem.isPending}
+                          className="text-destructive hover:text-destructive hover:bg-destructive/10"
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
                       </div>
                     </td>
                   </motion.tr>
-                ))}
+                ))
+                )}
               </tbody>
             </table>
           </div>
@@ -336,7 +469,7 @@ export default function Inventory() {
                         <Button
                           variant="ghost"
                           size="sm"
-                          onClick={() => handleDeleteItem(index)}
+                          onClick={() => handleDeleteDetectedItem(index)}
                         >
                           <X className="h-4 w-4" />
                         </Button>

@@ -1,19 +1,28 @@
 import { motion } from "framer-motion";
 import { useState } from "react";
-import { Plus, UtensilsCrossed, Calendar, Camera } from "lucide-react";
-import { mockMealLogs } from "@/data/mockData";
+import { Plus, UtensilsCrossed, Calendar, Camera, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/hooks/use-toast";
 import { useUserPersona } from "@/contexts/UserPersonaContext";
+import { useConsumptions, useCreateConsumption, useDeleteConsumption } from "@/integrations/supabase/hooks";
 
 export default function Consumptions() {
   const { userType } = useUserPersona();
   const [logDialogOpen, setLogDialogOpen] = useState(false);
   const [mealName, setMealName] = useState("");
+  const [ingredientsText, setIngredientsText] = useState("");
+  const [servings, setServings] = useState("");
+  const [notes, setNotes] = useState("");
   const { toast } = useToast();
+
+  // Fetch real consumption data from Supabase
+  const { data: consumptions = [], isLoading } = useConsumptions();
+  const createConsumption = useCreateConsumption();
+  const deleteConsumption = useDeleteConsumption();
 
   // Dynamic labels based on userType
   const getLogButtonText = () => {
@@ -23,53 +32,112 @@ export default function Consumptions() {
     return 'Log Meal';
   };
 
-  const getMealSubtitle = (log: typeof mockMealLogs[0]) => {
-    const date = new Date(log.date).toLocaleDateString();
+  const getMealSubtitle = (log: any) => {
+    const date = log.meal_date ? new Date(log.meal_date).toLocaleDateString() : 'No date';
+    const servingsCount = log.servings || log.fed_people || 1;
     
     switch (userType) {
       case 'family':
-        return `${date} • Fed 4 People`;
+        return `${date} • Fed ${log.fed_people || servingsCount} People`;
       case 'community':
-        return `${date} • 50 Servings`;
+        return `${date} • ${servingsCount} Servings`;
       default:
         return date;
     }
   };
 
-  const formatIngredients = (ingredients: string[]) => {
+  const formatIngredients = (ingredientsUsed: any) => {
+    if (!ingredientsUsed) return [];
+    
+    // Handle both array of objects and array of strings
+    let ingredients: string[] = [];
+    
+    if (Array.isArray(ingredientsUsed)) {
+      ingredients = ingredientsUsed.map((item: any) => 
+        typeof item === 'string' ? item : (item.name || item)
+      );
+    }
+    
     if (userType === 'community') {
-      // Append weights for community
-      const weightsMap: { [key: string]: string } = {
-        'Hilsha Fish': '2kg',
-        'Mustard Oil': '1L',
-        'Green Chili': '200g',
-        'Onion': '3kg',
-        'Red Lentils': '5kg',
-        'Miniket Rice': '20kg',
-        'Potato': '10kg'
-      };
-      
-      return ingredients.map(ingredient => {
-        const weight = weightsMap[ingredient] || '1kg';
-        return `${ingredient}: ${weight}`;
+      // Append weights for community (if available in the data)
+      return ingredients.map((ingredient: string) => {
+        // Try to find quantity info in the original data
+        const ingredientObj = Array.isArray(ingredientsUsed) 
+          ? ingredientsUsed.find((i: any) => i.name === ingredient || i === ingredient)
+          : null;
+        
+        if (ingredientObj && typeof ingredientObj === 'object' && ingredientObj.quantity) {
+          return `${ingredient}: ${ingredientObj.quantity}${ingredientObj.unit || ''}`;
+        }
+        return ingredient;
       });
     }
     return ingredients;
   };
 
-  const handleLogMeal = () => {
-    if (!mealName.trim()) return;
+  const handleLogMeal = async () => {
+    if (!mealName.trim()) {
+      toast({
+        title: "Error",
+        description: "Please enter a meal name",
+        variant: "destructive",
+      });
+      return;
+    }
     
-    setLogDialogOpen(false);
-    
-    // Simulate AI analysis
-    setTimeout(() => {
+    try {
+      // Parse ingredients from text (simple comma-separated)
+      const ingredientsArray = ingredientsText
+        .split(',')
+        .map(item => item.trim())
+        .filter(item => item.length > 0)
+        .map(item => ({ name: item }));
+
+      await createConsumption.mutateAsync({
+        meal_name: mealName,
+        meal_date: new Date().toISOString().split('T')[0],
+        ingredients_used: ingredientsArray.length > 0 ? ingredientsArray : null,
+        servings: servings ? parseInt(servings) : null,
+        fed_people: userType === 'family' && servings ? parseInt(servings) : null,
+        notes: notes || null,
+      });
+
+      setLogDialogOpen(false);
       toast({
         title: "Meal Logged Successfully!",
-        description: `Detected ingredients: Rice, Chicken, Vegetables. Inventory updated.`,
+        description: ingredientsArray.length > 0 
+          ? `Logged ${mealName} with ${ingredientsArray.length} ingredients`
+          : `Logged ${mealName}`,
       });
+      
+      // Reset form
       setMealName("");
-    }, 1500);
+      setIngredientsText("");
+      setServings("");
+      setNotes("");
+    } catch (error) {
+      toast({
+        title: "Error",
+        description: "Failed to log meal. Please try again.",
+        variant: "destructive",
+      });
+    }
+  };
+
+  const handleDeleteMeal = async (id: string) => {
+    try {
+      await deleteConsumption.mutateAsync(id);
+      toast({
+        title: "Meal Deleted",
+        description: "Consumption log removed successfully",
+      });
+    } catch (error) {
+      toast({
+        title: "Error",
+        description: "Failed to delete meal log. Please try again.",
+        variant: "destructive",
+      });
+    }
   };
 
   return (
@@ -102,8 +170,29 @@ export default function Consumptions() {
         </div>
 
         {/* Meal Logs Grid */}
-        <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {mockMealLogs.map((log, index) => (
+        {isLoading ? (
+          <div className="text-center py-20">
+            <div className="inline-block h-12 w-12 animate-spin rounded-full border-4 border-solid border-primary border-r-transparent"></div>
+            <p className="mt-4 text-muted-foreground">Loading meal logs...</p>
+          </div>
+        ) : consumptions.length === 0 ? (
+          <div className="text-center py-20">
+            <UtensilsCrossed className="h-16 w-16 mx-auto mb-4 text-muted-foreground" />
+            <h3 className="font-heading text-2xl font-semibold mb-2">No Meals Logged Yet</h3>
+            <p className="text-muted-foreground mb-6">
+              Start tracking your meals to see your consumption patterns
+            </p>
+            <Button 
+              onClick={() => setLogDialogOpen(true)}
+              className="gradient-primary text-white hover:opacity-90 transition-opacity"
+            >
+              <Plus className="mr-2 h-5 w-5" />
+              {getLogButtonText()}
+            </Button>
+          </div>
+        ) : (
+          <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
+            {consumptions.map((log, index) => (
             <motion.div
               key={log.id}
               initial={{ opacity: 0, y: 10 }}
@@ -116,18 +205,27 @@ export default function Consumptions() {
                   <UtensilsCrossed className="h-6 w-6 text-primary" />
                 </div>
                 <div className="flex-1">
-                  <h3 className="font-heading text-xl font-semibold mb-1">{log.name}</h3>
+                  <h3 className="font-heading text-xl font-semibold mb-1">{log.meal_name}</h3>
                   <div className="flex items-center gap-2 text-sm text-muted-foreground">
                     <Calendar className="h-4 w-4" />
                     <span>{getMealSubtitle(log)}</span>
                   </div>
                 </div>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => handleDeleteMeal(log.id)}
+                  disabled={deleteConsumption.isPending}
+                  className="text-destructive hover:text-destructive hover:bg-destructive/10"
+                >
+                  <Trash2 className="h-4 w-4" />
+                </Button>
               </div>
 
               <div>
                 <p className="text-sm text-muted-foreground mb-2">Ingredients Used:</p>
                 <div className="flex flex-wrap gap-2">
-                  {formatIngredients(log.ingredients).map((ingredient, idx) => (
+                  {formatIngredients(log.ingredients_used).map((ingredient, idx) => (
                     <span
                       key={idx}
                       className="rounded-full bg-primary/10 px-3 py-1 text-sm font-medium text-primary"
@@ -135,13 +233,26 @@ export default function Consumptions() {
                       {ingredient}
                     </span>
                   ))}
+                  {formatIngredients(log.ingredients_used).length === 0 && (
+                    <span className="text-sm text-muted-foreground">No ingredients listed</span>
+                  )}
                 </div>
               </div>
+              
+              {log.notes && (
+                <div className="mt-4 pt-4 border-t">
+                  <p className="text-sm text-muted-foreground">
+                    <strong>Notes:</strong> {log.notes}
+                  </p>
+                </div>
+              )}
             </motion.div>
           ))}
         </div>
+        )}
 
-        {/* Empty State or Stats */}
+        {/* Stats Section */}
+        {consumptions.length > 0 && (
         <motion.div
           initial={{ opacity: 0, y: 10 }}
           animate={{ opacity: 1, y: 0 }}
@@ -157,13 +268,16 @@ export default function Consumptions() {
           <div className="grid md:grid-cols-3 gap-6 mt-8">
             <div>
               <p className="text-3xl font-heading font-bold text-gradient mb-2">
-                {mockMealLogs.length}
+                {consumptions.length}
               </p>
               <p className="text-muted-foreground">Meals Logged</p>
             </div>
             <div>
               <p className="text-3xl font-heading font-bold text-gradient mb-2">
-                12
+                {consumptions.reduce((acc, log) => {
+                  const ingredients = formatIngredients(log.ingredients_used);
+                  return acc + ingredients.length;
+                }, 0)}
               </p>
               <p className="text-muted-foreground">Ingredients Used</p>
             </div>
@@ -175,6 +289,7 @@ export default function Consumptions() {
             </div>
           </div>
         </motion.div>
+        )}
 
         {/* Log Meal Dialog */}
         <Dialog open={logDialogOpen} onOpenChange={setLogDialogOpen}>
@@ -194,6 +309,44 @@ export default function Consumptions() {
               </div>
               
               <div className="space-y-2">
+                <Label htmlFor="ingredients">Ingredients (comma-separated)</Label>
+                <Textarea
+                  id="ingredients"
+                  placeholder="e.g., Rice, Chicken, Onions, Spices"
+                  value={ingredientsText}
+                  onChange={(e) => setIngredientsText(e.target.value)}
+                  rows={3}
+                />
+                <p className="text-xs text-muted-foreground">
+                  Separate each ingredient with a comma
+                </p>
+              </div>
+              
+              <div className="space-y-2">
+                <Label htmlFor="servings">
+                  {userType === 'family' ? 'People Fed' : 'Servings'}
+                </Label>
+                <Input
+                  id="servings"
+                  type="number"
+                  placeholder={userType === 'family' ? '4' : '1'}
+                  value={servings}
+                  onChange={(e) => setServings(e.target.value)}
+                />
+              </div>
+              
+              <div className="space-y-2">
+                <Label htmlFor="notes">Notes (optional)</Label>
+                <Textarea
+                  id="notes"
+                  placeholder="Any additional details..."
+                  value={notes}
+                  onChange={(e) => setNotes(e.target.value)}
+                  rows={2}
+                />
+              </div>
+              
+              <div className="space-y-2">
                 <Label>Upload Photo (Optional)</Label>
                 <div className="border-2 border-dashed border-border rounded-xl p-8 text-center hover:border-primary/50 transition-colors cursor-pointer">
                   <Camera className="h-12 w-12 mx-auto mb-2 text-muted-foreground" />
@@ -205,9 +358,10 @@ export default function Consumptions() {
 
               <Button 
                 onClick={handleLogMeal}
+                disabled={createConsumption.isPending}
                 className="w-full gradient-primary text-white hover:opacity-90 transition-opacity"
               >
-                Analyze & Log Meal
+                {createConsumption.isPending ? 'Logging...' : 'Log Meal'}
               </Button>
             </div>
           </DialogContent>

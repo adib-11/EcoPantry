@@ -1,5 +1,5 @@
 import { motion } from "framer-motion";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { User, LogOut, Save } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -9,16 +9,42 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { useToast } from "@/hooks/use-toast";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { useUserPersona, UserType } from "@/contexts/UserPersonaContext";
+import { useProfile, useUpdateProfile } from "@/integrations/supabase/hooks";
+import { supabase } from "@/integrations/supabase/client";
 
 export default function Profile() {
   const navigate = useNavigate();
   const { toast } = useToast();
   const { userType, setUserType } = useUserPersona();
-  const [name, setName] = useState("John Doe");
-  const [email, setEmail] = useState("john.doe@example.com");
-  const [householdSize, setHouseholdSize] = useState("4");
-  const [dietaryPreference, setDietaryPreference] = useState("omnivore");
-  const [monthlyBudget, setMonthlyBudget] = useState("15000");
+  
+  // Fetch real profile data from Supabase
+  const { data: profile, isLoading } = useProfile();
+  const updateProfile = useUpdateProfile();
+  
+  // Form state
+  const [name, setName] = useState("");
+  const [email, setEmail] = useState("");
+  const [householdSize, setHouseholdSize] = useState("");
+  const [dietaryPreference, setDietaryPreference] = useState("");
+  const [monthlyBudget, setMonthlyBudget] = useState("");
+  const [location, setLocation] = useState("");
+  
+  // Sync form with profile data when loaded
+  useEffect(() => {
+    if (profile) {
+      setName(profile.full_name || "");
+      setEmail(profile.email || "");
+      setHouseholdSize(profile.household_size?.toString() || "1");
+      setDietaryPreference(profile.dietary_preferences || "omnivore");
+      setMonthlyBudget(profile.monthly_budget?.toString() || "");
+      setLocation(profile.location || "");
+      
+      // Sync user type with context if it exists in profile
+      if (profile.user_type && profile.user_type !== userType) {
+        setUserType(profile.user_type as UserType);
+      }
+    }
+  }, [profile]);
 
   // Dynamic labels based on userType
   const getNameLabel = () => {
@@ -66,19 +92,45 @@ export default function Profile() {
     return 'Save Changes';
   };
 
-  const handleSaveChanges = () => {
-    toast({
-      title: "Profile Updated!",
-      description: "Your profile has been saved successfully.",
-    });
+  const handleSaveChanges = async () => {
+    try {
+      await updateProfile.mutateAsync({
+        full_name: name,
+        user_type: userType,
+        household_size: householdSize ? parseInt(householdSize) : null,
+        dietary_preferences: dietaryPreference || null,
+        monthly_budget: monthlyBudget ? parseFloat(monthlyBudget) : null,
+        location: location || null,
+      });
+      
+      toast({
+        title: "Profile Updated!",
+        description: "Your profile has been saved successfully.",
+      });
+    } catch (error) {
+      toast({
+        title: "Error",
+        description: "Failed to update profile. Please try again.",
+        variant: "destructive",
+      });
+    }
   };
 
-  const handleLogout = () => {
-    toast({
-      title: "Logged Out",
-      description: "You have been logged out successfully.",
-    });
-    navigate("/");
+  const handleLogout = async () => {
+    try {
+      await supabase.auth.signOut();
+      toast({
+        title: "Logged Out",
+        description: "You have been logged out successfully.",
+      });
+      navigate("/");
+    } catch (error) {
+      toast({
+        title: "Error",
+        description: "Failed to log out. Please try again.",
+        variant: "destructive",
+      });
+    }
   };
 
   return (
@@ -90,26 +142,41 @@ export default function Profile() {
           transition={{ duration: 0.3, ease: "easeOut" }}
           className="max-w-2xl mx-auto"
         >
+          {isLoading ? (
+            <div className="bg-white border border-slate-100 shadow-sm rounded-lg p-12 text-center">
+              <div className="inline-block h-12 w-12 animate-spin rounded-full border-4 border-solid border-primary border-r-transparent"></div>
+              <p className="mt-4 text-muted-foreground">Loading profile...</p>
+            </div>
+          ) : (
           <div className="bg-white border border-slate-100 shadow-sm rounded-lg overflow-hidden">
             {/* Header */}
             <div className="bg-gradient-to-r from-primary to-teal p-6">
               <div className="flex items-center gap-4">
                 <Avatar className="h-20 w-20 border-4 border-white">
-                  <AvatarImage src="" />
+                  <AvatarImage src={profile?.avatar_url || ""} />
                   <AvatarFallback className="bg-white text-primary text-2xl font-bold">
-                    {name.split(' ').map(n => n[0]).join('')}
+                    {name ? name.split(' ').map(n => n[0]).join('').toUpperCase() : 'U'}
                   </AvatarFallback>
                 </Avatar>
                 <div className="flex-1">
-                  <h1 className="font-heading text-3xl font-bold text-white mb-1">{name}</h1>
-                  <p className="text-white/90">{email}</p>
+                  <h1 className="font-heading text-3xl font-bold text-white mb-1">
+                    {name || 'User'}
+                  </h1>
+                  <p className="text-white/90">{email || 'No email'}</p>
+                  {profile?.green_score !== undefined && (
+                    <div className="mt-2 inline-flex items-center gap-2 bg-white/20 rounded-full px-3 py-1">
+                      <span className="text-white/90 text-sm">Green Score:</span>
+                      <span className="text-white font-bold">{profile.green_score}</span>
+                    </div>
+                  )}
                 </div>
                 <Button
                   variant="outline"
                   size="sm"
                   className="bg-white/10 border-white/20 text-white hover:bg-white/20"
+                  disabled
                 >
-                  Edit
+                  Edit Avatar
                 </Button>
               </div>
             </div>
@@ -190,16 +257,27 @@ export default function Profile() {
                     placeholder="e.g., 15000"
                   />
                 </div>
+                
+                <div className="space-y-2">
+                  <Label htmlFor="location">Location (Optional)</Label>
+                  <Input
+                    id="location"
+                    value={location}
+                    onChange={(e) => setLocation(e.target.value)}
+                    placeholder="e.g., Dhaka, Bangladesh"
+                  />
+                </div>
               </div>
 
               {/* Actions */}
               <div className="flex flex-col sm:flex-row gap-3 pt-4 border-t">
                 <Button 
                   onClick={handleSaveChanges}
+                  disabled={updateProfile.isPending}
                   className="flex-1 gradient-primary text-white hover:opacity-90 transition-opacity"
                 >
                   <Save className="mr-2 h-4 w-4" />
-                  {getSaveButtonText()}
+                  {updateProfile.isPending ? 'Saving...' : getSaveButtonText()}
                 </Button>
                 <Button 
                   onClick={handleLogout}
@@ -212,6 +290,7 @@ export default function Profile() {
               </div>
             </div>
           </div>
+          )}
         </motion.div>
       </div>
     </div>
