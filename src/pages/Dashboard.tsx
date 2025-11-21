@@ -2,13 +2,19 @@ import { motion } from "framer-motion";
 import { TrendingUp, TrendingDown, Package, AlertTriangle, CheckCircle, UtensilsCrossed, Leaf, Cloud, DollarSign, ShoppingBag, Utensils, Camera, Lightbulb } from "lucide-react";
 import { BorderBeam } from "@/components/animated/BorderBeam";
 import { Button } from "@/components/ui/button";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { useNavigate } from "react-router-dom";
 import { useUserPersona } from "@/contexts/UserPersonaContext";
 import { useProfile, useInventory, useConsumptions } from "@/integrations/supabase/hooks";
+import { ExpiredItemsCard } from "@/components/ExpiredItemsCard";
+import { useAuth } from "@/integrations/supabase/useAuth";
+import { useState } from "react";
 
 export default function Dashboard() {
   const navigate = useNavigate();
   const { userType } = useUserPersona();
+  const { user } = useAuth();
+  const [showExpiredModal, setShowExpiredModal] = useState(false);
   
   // Fetch real data from Supabase
   const { data: profile, isLoading: profileLoading } = useProfile();
@@ -17,7 +23,16 @@ export default function Dashboard() {
   
   // Calculate stats from real inventory data
   const expiringItems = inventory.filter(item => item.status === "expiring");
-  const expiredItems = inventory.filter(item => item.status === "expired");
+  
+  // Calculate expired items (3+ days past expiry)
+  const threeDaysAgo = new Date();
+  threeDaysAgo.setDate(threeDaysAgo.getDate() - 3);
+  const expiredItems = inventory.filter(item => {
+    if (!item.expiry_date) return false;
+    const expiryDate = new Date(item.expiry_date);
+    return expiryDate < threeDaysAgo;
+  });
+  
   const freshItems = inventory.filter(item => item.status === "fresh");
   
   // Calculate green score and trend (using profile data or default)
@@ -271,7 +286,11 @@ export default function Dashboard() {
               initial={{ opacity: 0, x: 10 }}
               animate={{ opacity: 1, x: 0 }}
               transition={{ duration: 0.3, delay: 0.2, ease: "easeOut" }}
-              className="card-hover-gradient p-6 bg-white border border-slate-100 shadow-sm"
+              className="card-hover-gradient p-6 bg-white border border-slate-100 shadow-sm cursor-pointer hover:border-red-200 transition-colors"
+              onClick={() => setShowExpiredModal(true)}
+              role="button"
+              tabIndex={0}
+              aria-label="View expired items details"
             >
               <div className="flex items-center gap-4 mb-4">
                 <div className="rounded-xl bg-red-100 p-3">
@@ -282,6 +301,9 @@ export default function Dashboard() {
                   <p className="font-heading text-2xl font-bold">{expiredItems.length}</p>
                 </div>
               </div>
+              {expiredItems.length > 0 && (
+                <p className="text-xs text-red-600 mt-2">Click to view details →</p>
+              )}
             </motion.div>
           </div>
         </div>
@@ -330,11 +352,21 @@ export default function Dashboard() {
           </div>
         </motion.div>
 
+        {/* Expired Items Modal */}
+        <Dialog open={showExpiredModal} onOpenChange={setShowExpiredModal}>
+          <DialogContent className="max-w-3xl max-h-[80vh] overflow-y-auto">
+            <DialogHeader>
+              <DialogTitle className="sr-only">Expired Items Details</DialogTitle>
+            </DialogHeader>
+            {user && <ExpiredItemsCard userId={user.id} />}
+          </DialogContent>
+        </Dialog>
+
         {/* Activity Feed */}
         <motion.div
           initial={{ opacity: 0, y: 10 }}
           animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.3, delay: 0.3, ease: "easeOut" }}
+          transition={{ duration: 0.3, delay: 0.35, ease: "easeOut" }}
           className="card-hover-gradient p-6 bg-white border border-slate-100 shadow-sm"
         >
           <h3 className="font-heading text-2xl font-semibold mb-6">Recent Activity</h3>
