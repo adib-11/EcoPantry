@@ -9,9 +9,12 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { useToast } from "@/hooks/use-toast";
 import { useUserPersona } from "@/contexts/UserPersonaContext";
 import { useInventory, useCreateInventoryItem, useUpdateInventoryItem, useDeleteInventoryItem } from "@/integrations/supabase/hooks";
+import { uploadFile } from "@/integrations/supabase/storage";
+import { useAuth } from "@/integrations/supabase/useAuth";
 
 export default function Inventory() {
   const { userType } = useUserPersona();
+  const { user } = useAuth();
   const [scanDialogOpen, setScanDialogOpen] = useState(false);
   const [scanStep, setScanStep] = useState<"upload" | "review">("upload");
   const [shopName, setShopName] = useState("");
@@ -20,6 +23,9 @@ export default function Inventory() {
   const [searchQuery, setSearchQuery] = useState("");
   const [categoryFilter, setCategoryFilter] = useState("all");
   const [sortBy, setSortBy] = useState("expiry");
+  const [receiptFile, setReceiptFile] = useState<File | null>(null);
+  const [receiptImageUrl, setReceiptImageUrl] = useState<string | null>(null);
+  const [isUploading, setIsUploading] = useState(false);
   const { toast } = useToast();
 
   // Fetch real inventory data from Supabase
@@ -120,17 +126,75 @@ export default function Inventory() {
     setShopName("");
     setDetectedItems([]);
     setNewItem("");
+    setReceiptFile(null);
+    setReceiptImageUrl(null);
   };
 
-  const handleAnalyze = () => {
-    // Mock detected items
-    setScanStep("review");
-    setDetectedItems([
-      "Miniket Rice - 5kg",
-      "Soybean Oil - 2L",
-      "Red Lentils - 1kg",
-      "Onions - 2kg"
-    ]);
+  const handleReceiptFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      // Validate file size (max 5MB)
+      if (file.size > 5 * 1024 * 1024) {
+        toast({
+          title: "File too large",
+          description: "Please select an image under 5MB",
+          variant: "destructive",
+        });
+        return;
+      }
+      setReceiptFile(file);
+    }
+  };
+
+  const handleAnalyze = async () => {
+    if (!receiptFile) {
+      toast({
+        title: "No Receipt Selected",
+        description: "Please upload a receipt image first",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    setIsUploading(true);
+
+    try {
+      // Upload receipt to Supabase Storage
+      if (user) {
+        const uploadResult = await uploadFile('receipts', receiptFile, user.id);
+        
+        if (uploadResult.error) {
+          throw new Error("Failed to upload receipt");
+        }
+
+        // Store the receipt image URL
+        if (uploadResult.data) {
+          setReceiptImageUrl(uploadResult.data.publicUrl);
+        }
+
+        toast({
+          title: "Receipt Uploaded",
+          description: "Analyzing receipt...",
+        });
+      }
+
+      // Mock detected items (in production, this would use OCR/AI)
+      setScanStep("review");
+      setDetectedItems([
+        "Miniket Rice - 5kg",
+        "Soybean Oil - 2L",
+        "Red Lentils - 1kg",
+        "Onions - 2kg"
+      ]);
+    } catch (error) {
+      toast({
+        title: "Upload Failed",
+        description: "Could not upload receipt. Please try again.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsUploading(false);
+    }
   };
 
   const handleDeleteItem = async (id: string) => {
@@ -174,13 +238,14 @@ export default function Inventory() {
         const quantity = quantityMatch ? parseFloat(quantityMatch[1]) : 1;
         const unit = quantityMatch?.[2] || 'pcs';
         
-        // Create item in database
+        // Create item in database with receipt image
         await createItem.mutateAsync({
           name,
           category: 'General', // Default category
           quantity,
           unit,
           purchase_date: new Date().toISOString().split('T')[0],
+          image_url: receiptImageUrl, // Use the receipt image for all items from this scan
           // Add optional fields based on user type
           ...(userType === 'family' && { purchased_by: 'Household' }),
           ...(userType === 'community' && { batch: `Batch-${new Date().toISOString().split('T')[0]}` }),
@@ -197,6 +262,7 @@ export default function Inventory() {
       setDetectedItems([]);
       setShopName("");
       setScanStep("upload");
+      setReceiptImageUrl(null);
     } catch (error) {
       toast({
         title: "Error",
@@ -279,6 +345,8 @@ export default function Inventory() {
                 <SelectItem value="fruits">Fruits</SelectItem>
                 <SelectItem value="dairy">Dairy</SelectItem>
                 <SelectItem value="meat">Meat & Fish</SelectItem>
+                <SelectItem value="spices">Spices</SelectItem>
+                <SelectItem value="snacks">Snacks</SelectItem>
               </SelectContent>
             </Select>
 
@@ -314,6 +382,7 @@ export default function Inventory() {
             <table className="w-full">
               <thead className="bg-muted/30 border-b">
                 <tr>
+                  <th className="text-left p-4 font-heading font-semibold">Image</th>
                   <th className="text-left p-4 font-heading font-semibold">Item</th>
                   <th className="text-left p-4 font-heading font-semibold">Category</th>
                   <th className="text-left p-4 font-heading font-semibold">Quantity</th>
@@ -325,14 +394,14 @@ export default function Inventory() {
               <tbody>
                 {isLoading ? (
                   <tr>
-                    <td colSpan={6} className="p-12 text-center">
+                    <td colSpan={7} className="p-12 text-center">
                       <div className="inline-block h-8 w-8 animate-spin rounded-full border-4 border-solid border-primary border-r-transparent"></div>
                       <p className="mt-4 text-muted-foreground">Loading inventory...</p>
                     </td>
                   </tr>
                 ) : filteredInventory.length === 0 ? (
                   <tr>
-                    <td colSpan={6} className="p-12 text-center text-muted-foreground">
+                    <td colSpan={7} className="p-12 text-center text-muted-foreground">
                       {searchQuery || categoryFilter !== "all" 
                         ? "No items found matching your filters"
                         : "No items in your inventory yet. Start by scanning a receipt or adding items manually."}
@@ -348,10 +417,24 @@ export default function Inventory() {
                     className="border-b border-border/50 hover:bg-muted/20 transition-colors"
                   >
                     <td className="p-4">
+                      <div className="w-16 h-16 rounded-lg overflow-hidden bg-muted flex items-center justify-center">
+                        {item.image_url ? (
+                          <img 
+                            src={item.image_url} 
+                            alt={item.name}
+                            className="w-full h-full object-cover"
+                            onError={(e) => {
+                              // Fallback to icon if image fails to load
+                              (e.target as HTMLImageElement).style.display = 'none';
+                              (e.target as HTMLImageElement).nextElementSibling?.classList.remove('hidden');
+                            }}
+                          />
+                        ) : null}
+                        <Package className={`h-8 w-8 text-muted-foreground ${item.image_url ? 'hidden' : ''}`} />
+                      </div>
+                    </td>
+                    <td className="p-4">
                       <div className="flex items-center gap-3">
-                        <div className="rounded-lg bg-primary/10 p-2">
-                          <Package className="h-5 w-5 text-primary" />
-                        </div>
                         <div>
                           <span className="font-medium block">{item.name}</span>
                           <span className="text-sm text-muted-foreground">{getItemSubtitle(item)}</span>
@@ -421,14 +504,40 @@ export default function Inventory() {
             {scanStep === "upload" && (
               <div className="space-y-4">
                 {/* Dropzone */}
-                <div className="border-2 border-dashed border-border rounded-lg p-8 text-center hover:border-primary transition-colors cursor-pointer">
-                  <Upload className="h-12 w-12 mx-auto mb-4 text-muted-foreground" />
-                  <p className="text-sm text-muted-foreground mb-2">
-                    Click to upload or drag and drop
-                  </p>
-                  <p className="text-xs text-muted-foreground">
-                    PNG, JPG or PDF (MAX. 5MB)
-                  </p>
+                <div className="space-y-2">
+                  <Label>Receipt Image</Label>
+                  <label 
+                    htmlFor="receipt-upload"
+                    className="flex flex-col items-center justify-center border-2 border-dashed border-border rounded-lg p-8 text-center hover:border-primary transition-colors cursor-pointer"
+                  >
+                    <Upload className="h-12 w-12 mb-4 text-muted-foreground" />
+                    {receiptFile ? (
+                      <div className="space-y-2">
+                        <p className="text-sm font-medium text-foreground">
+                          {receiptFile.name}
+                        </p>
+                        <p className="text-xs text-muted-foreground">
+                          {(receiptFile.size / 1024).toFixed(2)} KB
+                        </p>
+                      </div>
+                    ) : (
+                      <>
+                        <p className="text-sm text-muted-foreground mb-2">
+                          Click to upload or drag and drop
+                        </p>
+                        <p className="text-xs text-muted-foreground">
+                          PNG, JPG or PDF (MAX. 5MB)
+                        </p>
+                      </>
+                    )}
+                    <input
+                      id="receipt-upload"
+                      type="file"
+                      accept="image/*,.pdf"
+                      className="hidden"
+                      onChange={handleReceiptFileChange}
+                    />
+                  </label>
                 </div>
 
                 {/* Shop Name (Optional) */}
@@ -444,9 +553,10 @@ export default function Inventory() {
 
                 <Button 
                   onClick={handleAnalyze}
+                  disabled={!receiptFile || isUploading}
                   className="w-full gradient-primary text-white hover:opacity-90 transition-opacity"
                 >
-                  Analyze Receipt
+                  {isUploading ? "Uploading..." : "Analyze Receipt"}
                 </Button>
               </div>
             )}

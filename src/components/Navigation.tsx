@@ -1,7 +1,7 @@
 import { motion } from "framer-motion";
 import { useState } from "react";
 import { Link, useLocation } from "react-router-dom";
-import { Leaf, LayoutDashboard, Package, UtensilsCrossed, BookOpen, Plus, User, Upload } from "lucide-react";
+import { Leaf, LayoutDashboard, Package, UtensilsCrossed, BookOpen, Plus, User } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetFooter, SheetTrigger } from "@/components/ui/sheet";
@@ -9,17 +9,19 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
+import { useCreateInventoryItem } from "@/integrations/supabase/hooks";
 
 export const Navigation = () => {
   const location = useLocation();
   const { toast } = useToast();
+  const createItem = useCreateInventoryItem();
   const [sheetOpen, setSheetOpen] = useState(false);
   const [itemName, setItemName] = useState("");
   const [category, setCategory] = useState("");
   const [quantity, setQuantity] = useState("");
+  const [unit, setUnit] = useState("pcs");
   const [expiryDate, setExpiryDate] = useState("");
   const [cost, setCost] = useState("");
-  const [imageFile, setImageFile] = useState<File | null>(null);
   
   const isActive = (path: string) => location.pathname === path;
   
@@ -29,19 +31,53 @@ export const Navigation = () => {
   // Check if user is authenticated (on any page other than landing/auth)
   const isAuthenticated = location.pathname !== "/" && location.pathname !== "/login" && location.pathname !== "/register";
   
-  const handleSaveItem = () => {
-    toast({
-      title: "Item Added!",
-      description: `${itemName} has been added to your inventory.`,
-    });
-    setSheetOpen(false);
-    // Reset form
-    setItemName("");
-    setCategory("");
-    setQuantity("");
-    setExpiryDate("");
-    setCost("");
-    setImageFile(null);
+  const handleSaveItem = async () => {
+    if (!itemName || !category || !quantity || !expiryDate) {
+      toast({
+        title: "Missing Information",
+        description: "Please fill in all required fields",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    try {
+      // Parse quantity and unit
+      const quantityParts = quantity.trim().split(/\s+/);
+      const quantityValue = parseFloat(quantityParts[0]) || 1;
+      const unitValue = quantityParts[1] || unit;
+
+      // Create inventory item
+      await createItem.mutateAsync({
+        name: itemName,
+        category: category,
+        quantity: quantityValue,
+        unit: unitValue,
+        expiry_date: expiryDate,
+        purchase_date: new Date().toISOString().split('T')[0],
+        cost: cost ? parseFloat(cost) : null,
+      });
+
+      toast({
+        title: "Item Added!",
+        description: `${itemName} has been added to your inventory.`,
+      });
+      
+      setSheetOpen(false);
+      
+      // Reset form
+      setItemName("");
+      setCategory("");
+      setQuantity("");
+      setExpiryDate("");
+      setCost("");
+    } catch (error) {
+      toast({
+        title: "Error",
+        description: "Failed to add item. Please try again.",
+        variant: "destructive",
+      });
+    }
   };
   
   if (hideNav) return null;
@@ -127,27 +163,6 @@ export const Navigation = () => {
                   <SheetTitle>Add Manual Item</SheetTitle>
                 </SheetHeader>
                 <div className="space-y-4 py-4">
-                  {/* Image Upload */}
-                  <div className="space-y-2">
-                    <Label>Item Image (Optional)</Label>
-                    <label 
-                      htmlFor="image-upload" 
-                      className="flex flex-col items-center justify-center h-32 border-2 border-dashed border-slate-300 rounded-lg cursor-pointer hover:border-primary transition-colors bg-slate-50"
-                    >
-                      <Upload className="h-6 w-6 text-muted-foreground mb-2" />
-                      <span className="text-sm text-muted-foreground">
-                        {imageFile ? imageFile.name : "Tap to upload image"}
-                      </span>
-                      <input
-                        id="image-upload"
-                        type="file"
-                        accept="image/*"
-                        className="hidden"
-                        onChange={(e) => setImageFile(e.target.files?.[0] || null)}
-                      />
-                    </label>
-                  </div>
-
                   <div className="space-y-2">
                     <Label htmlFor="name">Item Name</Label>
                     <Input
@@ -178,10 +193,13 @@ export const Navigation = () => {
                     <Label htmlFor="quantity">Quantity</Label>
                     <Input
                       id="quantity"
-                      placeholder="e.g., 2 kg"
+                      placeholder="e.g., 2 kg or 5"
                       value={quantity}
                       onChange={(e) => setQuantity(e.target.value)}
                     />
+                    <p className="text-xs text-muted-foreground">
+                      Include unit if needed (e.g., "2 kg", "5 pcs")
+                    </p>
                   </div>
                   <div className="space-y-2">
                     <Label htmlFor="expiry">Expiry Date</Label>
@@ -206,10 +224,10 @@ export const Navigation = () => {
                 <SheetFooter>
                   <Button 
                     onClick={handleSaveItem}
-                    disabled={!itemName || !category || !quantity || !expiryDate}
+                    disabled={!itemName || !category || !quantity || !expiryDate || createItem.isPending}
                     className="w-full gradient-primary text-white hover:opacity-90 transition-opacity"
                   >
-                    Save Item
+                    {createItem.isPending ? "Saving..." : "Save Item"}
                   </Button>
                 </SheetFooter>
               </SheetContent>

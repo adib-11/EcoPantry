@@ -1,6 +1,6 @@
 import { motion } from "framer-motion";
 import { useState } from "react";
-import { Plus, UtensilsCrossed, Calendar, Camera, Trash2 } from "lucide-react";
+import { Plus, UtensilsCrossed, Calendar, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
@@ -198,54 +198,76 @@ export default function Consumptions() {
               initial={{ opacity: 0, y: 10 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.3, delay: 0.1 + index * 0.05, ease: "easeOut" }}
-              className="card-hover-gradient p-6"
+              className="card-hover-gradient overflow-hidden"
             >
-              <div className="flex items-start gap-4 mb-4">
-                <div className="rounded-xl bg-primary/10 p-3">
-                  <UtensilsCrossed className="h-6 w-6 text-primary" />
-                </div>
-                <div className="flex-1">
-                  <h3 className="font-heading text-xl font-semibold mb-1">{log.meal_name}</h3>
-                  <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                    <Calendar className="h-4 w-4" />
-                    <span>{getMealSubtitle(log)}</span>
-                  </div>
-                </div>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => handleDeleteMeal(log.id)}
-                  disabled={deleteConsumption.isPending}
-                  className="text-destructive hover:text-destructive hover:bg-destructive/10"
-                >
-                  <Trash2 className="h-4 w-4" />
-                </Button>
-              </div>
-
-              <div>
-                <p className="text-sm text-muted-foreground mb-2">Ingredients Used:</p>
-                <div className="flex flex-wrap gap-2">
-                  {formatIngredients(log.ingredients_used).map((ingredient, idx) => (
-                    <span
-                      key={idx}
-                      className="rounded-full bg-primary/10 px-3 py-1 text-sm font-medium text-primary"
-                    >
-                      {ingredient}
-                    </span>
-                  ))}
-                  {formatIngredients(log.ingredients_used).length === 0 && (
-                    <span className="text-sm text-muted-foreground">No ingredients listed</span>
-                  )}
-                </div>
-              </div>
-              
-              {log.notes && (
-                <div className="mt-4 pt-4 border-t">
-                  <p className="text-sm text-muted-foreground">
-                    <strong>Notes:</strong> {log.notes}
-                  </p>
+              {/* Meal Image */}
+              {log.image_url && (
+                <div className="relative h-48 w-full overflow-hidden">
+                  <img 
+                    src={log.image_url} 
+                    alt={log.meal_name}
+                    className="w-full h-full object-cover"
+                    onError={(e) => {
+                      // Hide image container if image fails to load
+                      (e.target as HTMLImageElement).parentElement!.style.display = 'none';
+                    }}
+                  />
+                  <div className="absolute inset-0 bg-gradient-to-t from-black/50 to-transparent" />
                 </div>
               )}
+              
+              <div className="p-6">
+                <div className="flex items-start gap-4 mb-4">
+                  <div className="rounded-xl bg-primary/10 p-3">
+                    <UtensilsCrossed className="h-6 w-6 text-primary" />
+                  </div>
+                  <div className="flex-1">
+                    <h3 className="font-heading text-xl font-semibold mb-1">{log.meal_name}</h3>
+                    <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                      <Calendar className="h-4 w-4" />
+                      <span>{getMealSubtitle(log)}</span>
+                    </div>
+                  </div>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleDeleteMeal(log.id);
+                    }}
+                    disabled={deleteConsumption.isPending}
+                    className="text-destructive hover:text-destructive hover:bg-destructive/10"
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </Button>
+                </div>
+
+                <div>
+                  <p className="text-sm text-muted-foreground mb-2">Ingredients Used:</p>
+                  <div className="flex flex-wrap gap-2">
+                    {formatIngredients(log.ingredients_used).map((ingredient, idx) => (
+                      <span
+                        key={idx}
+                        className="rounded-full bg-primary/10 px-3 py-1 text-sm font-medium text-primary"
+                      >
+                        {ingredient}
+                      </span>
+                    ))}
+                    {formatIngredients(log.ingredients_used).length === 0 && (
+                      <span className="text-sm text-muted-foreground">No ingredients listed</span>
+                    )}
+                  </div>
+                </div>
+                
+                {log.notes && (
+                  <div className="mt-4 pt-4 border-t">
+                    <p className="text-sm text-muted-foreground">
+                      <strong>Notes:</strong> {log.notes}
+                    </p>
+                  </div>
+                )}
+              </div>
             </motion.div>
           ))}
         </div>
@@ -344,16 +366,6 @@ export default function Consumptions() {
                   onChange={(e) => setNotes(e.target.value)}
                   rows={2}
                 />
-              </div>
-              
-              <div className="space-y-2">
-                <Label>Upload Photo (Optional)</Label>
-                <div className="border-2 border-dashed border-border rounded-xl p-8 text-center hover:border-primary/50 transition-colors cursor-pointer">
-                  <Camera className="h-12 w-12 mx-auto mb-2 text-muted-foreground" />
-                  <p className="text-sm text-muted-foreground">
-                    Click to upload or drag and drop
-                  </p>
-                </div>
               </div>
 
               <Button 
