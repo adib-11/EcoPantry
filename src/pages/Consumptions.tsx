@@ -1,6 +1,6 @@
 import { motion } from "framer-motion";
 import { useState } from "react";
-import { Plus, UtensilsCrossed, Calendar, Trash2 } from "lucide-react";
+import { Plus, UtensilsCrossed, Calendar, Trash2, Upload, ImageIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
@@ -9,6 +9,8 @@ import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/hooks/use-toast";
 import { useUserPersona } from "@/contexts/UserPersonaContext";
 import { useConsumptions, useCreateConsumption, useDeleteConsumption } from "@/integrations/supabase/hooks";
+import { uploadImage } from "@/integrations/supabase/storage";
+import { useAuth } from "@/integrations/supabase/useAuth";
 
 export default function Consumptions() {
   const { userType } = useUserPersona();
@@ -17,7 +19,10 @@ export default function Consumptions() {
   const [ingredientsText, setIngredientsText] = useState("");
   const [servings, setServings] = useState("");
   const [notes, setNotes] = useState("");
+  const [mealImage, setMealImage] = useState<File | null>(null);
+  const [isUploading, setIsUploading] = useState(false);
   const { toast } = useToast();
+  const { user } = useAuth();
 
   // Fetch real consumption data from Supabase
   const { data: consumptions = [], isLoading } = useConsumptions();
@@ -86,6 +91,23 @@ export default function Consumptions() {
     }
     
     try {
+      setIsUploading(true);
+      let imageUrl: string | null = null;
+
+      // Upload image if selected
+      if (mealImage && user) {
+        const uploadResult = await uploadImage('meal-images', mealImage, user.id);
+        if (uploadResult.error) {
+          toast({
+            title: "Image Upload Failed",
+            description: "Meal will be logged without image",
+            variant: "destructive",
+          });
+        } else if (uploadResult.data) {
+          imageUrl = uploadResult.data.publicUrl;
+        }
+      }
+      
       // Parse ingredients from text (simple comma-separated)
       const ingredientsArray = ingredientsText
         .split(',')
@@ -100,6 +122,7 @@ export default function Consumptions() {
         servings: servings ? parseInt(servings) : null,
         fed_people: userType === 'family' && servings ? parseInt(servings) : null,
         notes: notes || null,
+        image_url: imageUrl,
       });
 
       setLogDialogOpen(false);
@@ -115,12 +138,15 @@ export default function Consumptions() {
       setIngredientsText("");
       setServings("");
       setNotes("");
+      setMealImage(null);
     } catch (error) {
       toast({
         title: "Error",
         description: "Failed to log meal. Please try again.",
         variant: "destructive",
       });
+    } finally {
+      setIsUploading(false);
     }
   };
 
@@ -228,19 +254,20 @@ export default function Consumptions() {
                       <span>{getMealSubtitle(log)}</span>
                     </div>
                   </div>
-                  <Button
+                  <button
                     type="button"
-                    variant="ghost"
-                    size="sm"
                     onClick={(e) => {
+                      e.preventDefault();
                       e.stopPropagation();
+                      console.log('Delete button clicked for meal:', log.id);
                       handleDeleteMeal(log.id);
                     }}
                     disabled={deleteConsumption.isPending}
-                    className="text-destructive hover:text-destructive hover:bg-destructive/10"
+                    className="rounded-lg p-2 text-destructive hover:text-destructive hover:bg-destructive/10 transition-colors disabled:opacity-50"
+                    aria-label="Delete meal"
                   >
                     <Trash2 className="h-4 w-4" />
-                  </Button>
+                  </button>
                 </div>
 
                 <div>
@@ -368,12 +395,61 @@ export default function Consumptions() {
                 />
               </div>
 
+              {/* Image Upload */}
+              <div className="space-y-2">
+                <Label>Meal Photo (Optional)</Label>
+                <label 
+                  htmlFor="meal-image-upload" 
+                  className="flex flex-col items-center justify-center h-32 border-2 border-dashed border-slate-300 rounded-lg cursor-pointer hover:border-primary transition-colors bg-slate-50"
+                >
+                  {mealImage ? (
+                    <>
+                      <ImageIcon className="h-6 w-6 text-primary mb-2" />
+                      <span className="text-sm text-foreground font-medium">
+                        {mealImage.name}
+                      </span>
+                      <span className="text-xs text-muted-foreground">
+                        {(mealImage.size / 1024).toFixed(2)} KB
+                      </span>
+                    </>
+                  ) : (
+                    <>
+                      <Upload className="h-6 w-6 text-muted-foreground mb-2" />
+                      <span className="text-sm text-muted-foreground">
+                        Tap to upload image
+                      </span>
+                    </>
+                  )}
+                  <input
+                    id="meal-image-upload"
+                    type="file"
+                    accept="image/*"
+                    className="hidden"
+                    onChange={(e) => {
+                      const file = e.target.files?.[0];
+                      if (file) {
+                        // Validate file size (max 5MB)
+                        if (file.size > 5 * 1024 * 1024) {
+                          toast({
+                            title: "File too large",
+                            description: "Please select an image under 5MB",
+                            variant: "destructive",
+                          });
+                          return;
+                        }
+                        setMealImage(file);
+                      }
+                    }}
+                  />
+                </label>
+              </div>
+
               <Button 
                 onClick={handleLogMeal}
-                disabled={createConsumption.isPending}
+                disabled={createConsumption.isPending || isUploading}
                 className="w-full gradient-primary text-white hover:opacity-90 transition-opacity"
               >
-                {createConsumption.isPending ? 'Logging...' : 'Log Meal'}
+                {isUploading ? 'Uploading...' : createConsumption.isPending ? 'Logging...' : 'Log Meal'}
               </Button>
             </div>
           </DialogContent>

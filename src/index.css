@@ -189,6 +189,7 @@
       hsl(var(--primary) / 0.1),
       hsl(var(--teal) / 0.1)
     );
+    pointer-events: none; /* Allow clicks to pass through to buttons */
   }
 
   .card-hover-gradient:hover::before {
