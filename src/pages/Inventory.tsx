@@ -376,7 +376,7 @@ export default function Inventory() {
           initial={{ opacity: 0, y: 10 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.3, delay: 0.1, ease: "easeOut" }}
-          className="card-hover-gradient overflow-hidden"
+          className="bg-white border border-slate-100 shadow-sm rounded-lg overflow-hidden"
         >
           <div className="overflow-x-auto">
             <table className="w-full">
@@ -414,7 +414,7 @@ export default function Inventory() {
                     initial={{ opacity: 0, y: 10 }}
                     animate={{ opacity: 1, y: 0 }}
                     transition={{ duration: 0.3, delay: 0.15 + index * 0.03, ease: "easeOut" }}
-                    className="border-b border-border/50 hover:bg-muted/20 transition-colors"
+                    className="border-b border-border/50 hover:bg-primary/5 transition-colors"
                   >
                     <td className="p-4">
                       <div className="w-16 h-16 rounded-lg overflow-hidden bg-muted flex items-center justify-center">

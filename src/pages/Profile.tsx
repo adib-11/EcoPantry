@@ -1,16 +1,18 @@
 import { motion } from "framer-motion";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useNavigate } from "react-router-dom";
-import { User, LogOut, Save } from "lucide-react";
+import { User, LogOut, Save, Upload, Camera } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { useToast } from "@/hooks/use-toast";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { useUserPersona, UserType } from "@/contexts/UserPersonaContext";
 import { useProfile, useUpdateProfile } from "@/integrations/supabase/hooks";
 import { supabase } from "@/integrations/supabase/client";
+import { uploadFile } from "@/integrations/supabase/storage";
 
 export default function Profile() {
   const navigate = useNavigate();
@@ -28,6 +30,13 @@ export default function Profile() {
   const [dietaryPreference, setDietaryPreference] = useState("");
   const [monthlyBudget, setMonthlyBudget] = useState("");
   const [location, setLocation] = useState("");
+  
+  // Avatar upload state
+  const [isAvatarDialogOpen, setIsAvatarDialogOpen] = useState(false);
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const [isUploading, setIsUploading] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   
   // Sync form with profile data when loaded
   useEffect(() => {
@@ -133,6 +142,88 @@ export default function Profile() {
     }
   };
 
+  const handleFileSelect = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (file) {
+      // Validate file type
+      if (!file.type.startsWith('image/')) {
+        toast({
+          title: "Invalid File",
+          description: "Please select an image file.",
+          variant: "destructive",
+        });
+        return;
+      }
+      
+      // Validate file size (max 5MB)
+      if (file.size > 5 * 1024 * 1024) {
+        toast({
+          title: "File Too Large",
+          description: "Please select an image smaller than 5MB.",
+          variant: "destructive",
+        });
+        return;
+      }
+      
+      setSelectedFile(file);
+      
+      // Create preview URL
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        setPreviewUrl(reader.result as string);
+      };
+      reader.readAsDataURL(file);
+    }
+  };
+
+  const handleAvatarUpload = async () => {
+    if (!selectedFile || !profile) return;
+    
+    setIsUploading(true);
+    
+    try {
+      // Upload to Supabase Storage
+      const result = await uploadFile('avatars', selectedFile, profile.id);
+      
+      if (result.error) throw result.error;
+      
+      if (!result.data) throw new Error('Upload failed');
+      
+      // Update profile with new avatar URL
+      await updateProfile.mutateAsync({
+        avatar_url: result.data.publicUrl,
+      });
+      
+      toast({
+        title: "Avatar Updated!",
+        description: "Your profile picture has been updated successfully.",
+      });
+      
+      // Close dialog and reset state
+      setIsAvatarDialogOpen(false);
+      setSelectedFile(null);
+      setPreviewUrl(null);
+    } catch (error) {
+      console.error('Avatar upload error:', error);
+      toast({
+        title: "Upload Failed",
+        description: "Failed to update avatar. Please try again.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsUploading(false);
+    }
+  };
+
+  const handleCancelAvatarUpload = () => {
+    setIsAvatarDialogOpen(false);
+    setSelectedFile(null);
+    setPreviewUrl(null);
+    if (fileInputRef.current) {
+      fileInputRef.current.value = '';
+    }
+  };
+
   return (
     <div className="min-h-screen pt-24 pb-12 bg-slate-50">
       <div className="container mx-auto px-4">
@@ -174,8 +265,9 @@ export default function Profile() {
                   variant="outline"
                   size="sm"
                   className="bg-white/10 border-white/20 text-white hover:bg-white/20"
-                  disabled
+                  onClick={() => setIsAvatarDialogOpen(true)}
                 >
+                  <Camera className="mr-2 h-4 w-4" />
                   Edit Avatar
                 </Button>
               </div>
@@ -292,6 +384,69 @@ export default function Profile() {
           </div>
           )}
         </motion.div>
+
+        {/* Avatar Upload Dialog */}
+        <Dialog open={isAvatarDialogOpen} onOpenChange={setIsAvatarDialogOpen}>
+          <DialogContent className="sm:max-w-md">
+            <DialogHeader>
+              <DialogTitle>Update Profile Picture</DialogTitle>
+              <DialogDescription>
+                Choose a new profile picture. Supported formats: JPG, PNG, GIF (max 5MB)
+              </DialogDescription>
+            </DialogHeader>
+            
+            <div className="space-y-4 py-4">
+              {/* Preview */}
+              <div className="flex justify-center">
+                <Avatar className="h-32 w-32 border-4 border-primary/20">
+                  <AvatarImage src={previewUrl || profile?.avatar_url || ""} />
+                  <AvatarFallback className="bg-primary/10 text-primary text-4xl font-bold">
+                    {name ? name.split(' ').map(n => n[0]).join('').toUpperCase() : 'U'}
+                  </AvatarFallback>
+                </Avatar>
+              </div>
+              
+              {/* File Input */}
+              <div className="space-y-2">
+                <Label htmlFor="avatar-upload">Select Image</Label>
+                <Input
+                  id="avatar-upload"
+                  ref={fileInputRef}
+                  type="file"
+                  accept="image/*"
+                  onChange={handleFileSelect}
+                  className="cursor-pointer"
+                />
+              </div>
+              
+              {selectedFile && (
+                <div className="text-sm text-muted-foreground">
+                  Selected: {selectedFile.name} ({(selectedFile.size / 1024).toFixed(1)} KB)
+                </div>
+              )}
+            </div>
+            
+            <DialogFooter className="gap-2 sm:gap-0">
+              <Button
+                type="button"
+                variant="outline"
+                onClick={handleCancelAvatarUpload}
+                disabled={isUploading}
+              >
+                Cancel
+              </Button>
+              <Button
+                type="button"
+                onClick={handleAvatarUpload}
+                disabled={!selectedFile || isUploading}
+                className="gradient-primary text-white"
+              >
+                <Upload className="mr-2 h-4 w-4" />
+                {isUploading ? 'Uploading...' : 'Upload Avatar'}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
       </div>
     </div>
   );
