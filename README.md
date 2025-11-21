@@ -96,7 +96,30 @@ ecopantry-hub-main-2/
 
 - **Node.js** (v18 or higher) - [Install with nvm](https://github.com/nvm-sh/nvm#installing-and-updating)
 - **npm** (comes with Node.js)
-- **Supabase Account** - [Sign up at supabase.com](https://supabase.com)
+- **Supabase Account** - [Sign up at supabase.com](https://supabase.com) (only if creating your own instance)
+
+### Quick Start (Using Shared Database)
+
+For the fastest setup, use the shared Supabase instance:
+
+```bash
+# 1. Clone the repository
+git clone https://github.com/adib-11/EcoPantry.git
+cd ecopantry-hub-main-2
+
+# 2. Install dependencies
+npm install
+
+# 3. Set up environment variables (uses shared database)
+cp .env.example .env
+
+# 4. Start the development server
+npm run dev
+```
+
+The app will be available at `http://localhost:5173` with a fully functional backend!
+
+### Detailed Setup Instructions
 
 ### Step 1: Clone the Repository
 
@@ -113,22 +136,40 @@ npm install
 
 ### Step 3: Environment Configuration
 
-Create a `.env` file in the project root:
+**Option A: Use the Shared Supabase Instance (Recommended for Testing)**
+
+Copy the example environment file to create your `.env`:
 
 ```bash
-touch .env
+cp .env.example .env
 ```
 
-Add your Supabase credentials (found in your Supabase project settings):
+This will use the shared Supabase instance that's already configured with the database schema and seed data. You can start developing immediately!
 
-```env
-VITE_SUPABASE_URL=https://your-project.supabase.co
-VITE_SUPABASE_ANON_KEY=your-anon-key-here
-```
+**Option B: Use Your Own Supabase Instance**
+
+If you want to create your own Supabase project:
+
+1. Create a `.env` file in the project root:
+   ```bash
+   touch .env
+   ```
+
+2. Add your Supabase credentials (found in your Supabase project settings):
+   ```env
+   VITE_SUPABASE_URL=https://your-project.supabase.co
+   VITE_SUPABASE_ANON_KEY=your-anon-key-here
+   ```
+
+3. Follow **Step 4** below to set up the database schema
 
 **Important:** Never commit the `.env` file to version control. It's already in `.gitignore`.
 
 ### Step 4: Backend Setup (Supabase)
+
+**If you're using the shared Supabase instance (`.env.example`)**, you can skip this step! The database is already set up with schema and seed data.
+
+**If you created your own Supabase project**, follow these steps:
 
 #### 4.1 Create Supabase Project
 
@@ -250,6 +291,16 @@ DELETE FROM resources WHERE category IN ('tip', 'recipe');
 - **Protected Routes** - Unauthorized users redirected to login
 - **Type Safety** - TypeScript for compile-time error checking
 - **Environment Variables** - Sensitive data not in source code
+
+### Shared Database Note
+
+The project includes a `.env.example` file with credentials to a shared Supabase instance. This is safe because:
+- The **anon key** is designed to be public (it's used in client-side code)
+- **Row Level Security** ensures users can only access their own data
+- Each user's data is isolated by their authentication session
+- The database password is NOT exposed (only the anon key)
+
+For production deployments, you should create your own Supabase instance.
 
 ## 🎨 Key Features
 
