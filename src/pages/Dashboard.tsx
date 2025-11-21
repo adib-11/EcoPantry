@@ -7,6 +7,7 @@ import { useNavigate } from "react-router-dom";
 import { useUserPersona } from "@/contexts/UserPersonaContext";
 import { useProfile, useInventory, useConsumptions } from "@/integrations/supabase/hooks";
 import { ExpiredItemsCard } from "@/components/ExpiredItemsCard";
+import { SDGScoreCard } from "@/components/dashboard/SDGScoreCard";
 import { useAuth } from "@/integrations/supabase/useAuth";
 import { useState } from "react";
 
@@ -137,7 +138,7 @@ export default function Dashboard() {
                 <div className="flex items-start justify-between mb-6">
                   <div>
                     <h3 className="font-heading text-2xl font-semibold mb-2">{getGreenScoreTitle()}</h3>
-                    <p className="text-muted-foreground">Your sustainability rating</p>
+                    <p className="text-muted-foreground">AI-powered sustainability analysis</p>
                   </div>
                   <div className={`flex items-center gap-2 px-3 py-1 rounded-full ${
                     scoreTrend === "up" 
@@ -351,6 +352,20 @@ export default function Dashboard() {
             </Button>
           </div>
         </motion.div>
+
+        {/* Score Breakdown - Full Width Card */}
+        {user && (
+          <motion.div
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.3, delay: 0.3, ease: "easeOut" }}
+            className="mb-8"
+          >
+            <div className="card-hover-gradient p-8 bg-white border border-slate-100 shadow-sm">
+              <SDGScoreCard userId={user.id} />
+            </div>
+          </motion.div>
+        )}
 
         {/* Expired Items Modal */}
         <Dialog open={showExpiredModal} onOpenChange={setShowExpiredModal}>

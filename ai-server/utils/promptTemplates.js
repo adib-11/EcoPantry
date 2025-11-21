@@ -137,8 +137,109 @@ Return ONLY valid JSON:
 }`;
 };
 
+/**
+ * Build SDG scoring prompt for sustainability score calculation
+ * @param {Object} metrics - Calculated metrics from user data
+ * @param {number|null} previousScore - Previous sustainability score
+ * @returns {string} Formatted prompt for Gemini AI
+ */
+function buildSdgScoringPrompt(metrics, previousScore) {
+  return `You are a sustainability scoring analyst for EcoPantry, a food waste reduction app in Bangladesh.
+
+Analyze this user's food waste management data and calculate a sustainability score from 0-100.
+
+**User Data:**
+
+Inventory Status:
+- Total Items: ${metrics.inventory.total}
+- Fresh Items: ${metrics.inventory.fresh} (${metrics.inventory.freshPercentage}%)
+- Expiring Soon (1-7 days): ${metrics.inventory.expiring}
+- Already Expired: ${metrics.inventory.expired}
+
+Consumption Tracking (Last 7 Days):
+- Meals Logged: ${metrics.consumption.mealsLogged}
+- Active Days: ${metrics.consumption.activeDays}/${metrics.consumption.daysInPeriod}
+- Logging Rate: ${metrics.consumption.loggingRate}%
+
+Food Waste:
+- Wasted Items: ${metrics.waste.wastedItems}
+- Waste Rate: ${metrics.waste.wasteRate}%
+
+Dietary Diversity:
+- Food Categories Used: ${metrics.diversity.categoriesUsed.join(', ') || 'None'}
+- Category Count: ${metrics.diversity.categoryCount}/${metrics.diversity.maxCategories}
+
+Household:
+- Type: ${metrics.profile.userType}
+- Size: ${metrics.profile.householdSize} people
+
+${previousScore !== null ? `Previous Score: ${previousScore}/100` : 'This is the first score calculation.'}
+
+**Scoring Criteria:**
+
+1. **Inventory Management (40 points)**
+   - High fresh food ratio (>70%): Full points
+   - Low expired items (<5%): Bonus points
+   - Minimal expiring items: Good rotation
+
+2. **Logging Consistency (20 points)**
+   - Daily logging (7/7 days): Full points
+   - Regular logging (5-6/7 days): High points
+   - Occasional logging (3-4/7 days): Medium points
+
+3. **Waste Reduction (30 points)**
+   - Zero waste: Full points
+   - Low waste (<10%): High points
+   - Moderate waste (10-20%): Medium points
+   - High waste (>20%): Low points
+
+4. **Dietary Diversity (10 points)**
+   - All 4 categories used: Full points
+   - 3 categories: High points
+   - 2 categories: Medium points
+
+**Task:**
+
+1. Calculate a score from 0-100 based on the criteria above
+2. Provide breakdown for each category (inventoryManagement, loggingConsistency, wasteReduction, diversity)
+3. Generate 3-5 specific, actionable insights based on the data
+4. Suggest 2-3 next steps to improve the score
+
+**Guidelines:**
+- Be encouraging and positive
+- Highlight improvements if previousScore exists
+- Provide Bangladesh-specific advice (local foods, markets, climate)
+- Use simple language
+- Be specific with numbers
+
+**Return ONLY valid JSON in this exact format:**
+
+\`\`\`json
+{
+  "score": 75,
+  "breakdown": {
+    "inventoryManagement": 82,
+    "loggingConsistency": 85,
+    "wasteReduction": 70,
+    "diversity": 65
+  },
+  "insights": [
+    "Great job! You've logged meals for ${metrics.consumption.activeDays} out of 7 days.",
+    "Your fresh food ratio is ${metrics.inventory.freshPercentage}% - well above average!",
+    "You have ${metrics.inventory.expired} expired items - consider using expiring items first."
+  ],
+  "nextSteps": [
+    "Focus on using the ${metrics.inventory.expiring} items expiring soon to boost your score by 10 points",
+    "Try logging meals daily to improve consistency",
+    "Add more variety - currently using ${metrics.diversity.categoryCount} out of 4 food categories"
+  ]
+}
+\`\`\``;
+}
+
 module.exports = {
   buildChatSystemPrompt,
   buildScoringPrompt,
-  buildPatternAnalysisPrompt
+  buildPatternAnalysisPrompt,
+  buildSdgScoringPrompt
 };
